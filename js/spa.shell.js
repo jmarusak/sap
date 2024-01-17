@@ -11,9 +11,8 @@ spa.shell = function () {
   var
     configMap = {
       anchor_schema_map : {
-        chat  : { open : true, closed : true }
+        chat  : { opened : true, closed : true }
       },
-
       main_html : String()
         + '<div class="spa-shell-head">'
           + '<div class="spa-shell-head-logo"></div>'
@@ -25,28 +24,16 @@ spa.shell = function () {
           + '<div class="spa-shell-main-content"></div>'
         + '</div>'
         + '<div class="spa-shell-foot"></div>'
-        + '<div class="spa-shell-chat"></div>'
-        + '<div class="spa-shell-modal"></div>',
-      chat_extend_time : 1000,
-      chat_retract_time : 300,
-      chat_extend_height : 450,
-      chat_retract_height : 15,
-      chat_extended_title : 'Click to retract',
-      chat_retracted_title : 'Click to extend'
+        + '<div class="spa-shell-modal"></div>'
     },
 
-    stateMap = {
-      $container : null,
-      anchor_map : {},
-      is_chat_retracted : true
-    },
+    stateMap  = { anchor_map : {} },
 
     jqueryMap = {},
 
-    copyAnchorMap,    setJqueryMap,   toggleChat,
+    copyAnchorMap,    setJqueryMap,
     changeAnchorPart, onHashchange,
-    onClickChat,      initModule;
-
+    setChatAnchor,    initModule;
 
   //------------------- BEGIN UTILITY METHODS ------------------
 
@@ -61,52 +48,7 @@ spa.shell = function () {
   // Cashing JQuery containers for performance improvement
   setJqueryMap = function () {
     var $container = stateMap.$container;
-    jqueryMap = { 
-      $container : $container,
-      $chat : $container.find( '.spa-shell-chat' )
-    };
-  };
-
-  // Extend or retract chat slider
-  toggleChat = function ( do_extend, callback ) {
-    var
-      px_chat_ht = jqueryMap.$chat.height(),
-      is_open = px_chat_ht === configMap.chat_extend_height,
-      is_closed = px_chat_ht === configMap.chat_retract_height,
-      is_sliding = !is_open && !is_closed;
-
-    // Avoid slider race congition
-    if ( is_sliding ) { return false};
-
-    // Begin extend chat slider
-    if ( do_extend ) {
-      jqueryMap.$chat.animate(
-        { height : configMap.chat_extend_height },
-        configMap.chat_extend_time,
-        function () {
-          jqueryMap.$chat.attr(
-            'title', configMap.chat_extended_title
-          );
-          stateMap.is_chat_retracted = false;
-          if ( callback ) { callback ( jqueryMap.$chat ) }
-        }
-      );
-      return true;
-    }
-
-    // Begin retract chat slider
-    jqueryMap.$chat.animate(
-      { height : configMap.chat_retract_height },
-      configMap.chat_retract_time,
-      function () {
-        jqueryMap.$chat.attr(
-          'title', configMap.chat_retracted_title
-        );
-        stateMap.is_chat_retracted = true;
-        if ( callback ) { callback ( jqueryMap.$chat ) }
-      }
-    );
-    return true;
+    jqueryMap = { $container : $container };
   };
 
   changeAnchorPart = function ( arg_map ) {
@@ -153,13 +95,12 @@ spa.shell = function () {
 
 
   //------------------- BEGIN EVENT HANDLERS -------------------
-
   onHashchange = function ( event ) {
     var
-      anchor_map_previous = copyAnchorMap(),
+      _s_chat_previous, _s_chat_proposed, s_chat_proposed,
       anchor_map_proposed,
-      _s_chat_previous, _s_chat_proposed,
-      s_chat_proposed;
+      is_ok = true,
+      anchor_map_previous = copyAnchorMap();
 
     // attempt to parse anchor
     try { anchor_map_proposed = $.uriAnchor.makeAnchorMap(); }
@@ -179,54 +120,71 @@ spa.shell = function () {
     ) {
       s_chat_proposed = anchor_map_proposed.chat;
       switch ( s_chat_proposed ) {
-        case 'open'   :
-          toggleChat( true );
+        case 'opened' :
+          is_ok = spa.chat.setSliderPosition( 'opened' );
         break;
         case 'closed' :
-          toggleChat( false );
+          is_ok = spa.chat.setSliderPosition( 'closed' );
         break;
-        default  :
-          toggleChat( false );
+        default :
+          spa.chat.setSliderPosition( 'closed' );
           delete anchor_map_proposed.chat;
           $.uriAnchor.setAnchor( anchor_map_proposed, null, true );
       }
     }
+    // End adjust chat component if changed
+    
+    // Begin revert anchor if slider change denied
+    if ( ! is_ok ){
+      if ( anchor_map_previous ){
+        $.uriAnchor.setAnchor( anchor_map_previous, null, true );
+        stateMap.anchor_map = anchor_map_previous;
+      }
+      else {
+        delete anchor_map_proposed.chat;
+        $.uriAnchor.setAnchor( anchor_map_proposed, null, true );
+      }
+    }
+    // End revert anchor if slider change denied
 
     return false;
   };
 
-  // Event handlers
-  onClickChat = function ( event ) {
-    changeAnchorPart({
-      chat : ( stateMap.is_chat_retracted ? 'open' : 'closed' )
-    });
-    return false;
+  //------------------- CALLBACK METHODS -------------------
+  setChatAnchor = function ( position_type ){
+    return changeAnchorPart({ chat : position_type });
   };
-
 
   //------------------- BEGIN PUBLIC METHODS -------------------
-
-  // Shell module public function called from main module
   initModule = function ( $container ) {
+    // load HTML and map jQuery collections
     stateMap.$container = $container;
     $container.html( configMap.main_html );
     setJqueryMap();
 
-    // Initialize sliden and bind click handler
-    stateMap.is_chat_retracted = true;
-    jqueryMap.$chat
-      .attr( 'title', configMap.chat_retracted_title )
-      .click( onClickChat );
-
-    // Configure uriAnchor to use our schema
+    // configure uriAnchor to use our schema
     $.uriAnchor.configModule({
-        schema_map : configMap.anchor_schema_map
+      schema_map : configMap.anchor_schema_map
     });
 
-    // Handle URI anchor change events
+    // configure and initialize feature modules
+    spa.chat.configModule({
+      set_chat_anchor : setChatAnchor,
+      chat_model      : spa.model.chat,
+      people_model    : spa.model.people
+    });
+    spa.chat.initModule( jqueryMap.$container );
+
+    // Handle URI anchor change events.
+    // This is done /after/ all feature modules are configured
+    // and initialized, otherwise they will not be ready to handle
+    // the trigger event, which is used to ensure the anchor
+    // is considered on-load
+    //
     $(window)
       .bind( 'hashchange', onHashchange )
-      .trigger( 'hashchange');
+      .trigger( 'hashchange' );
+
   };
 
   return { initModule : initModule };
