@@ -13,6 +13,7 @@ spa.shell = function () {
       anchor_schema_map : {
         chat  : { opened : true, closed : true }
       },
+      resize_interval : 200,
       main_html : String()
         + '<div class="spa-shell-head">'
           + '<div class="spa-shell-head-logo"></div>'
@@ -27,12 +28,16 @@ spa.shell = function () {
         + '<div class="spa-shell-modal"></div>'
     },
 
-    stateMap  = { anchor_map : {} },
+    stateMap = {
+      $container  : undefined,
+      anchor_map  : {},
+      resize_idto : undefined
+    },
 
     jqueryMap = {},
 
     copyAnchorMap,    setJqueryMap,
-    changeAnchorPart, onHashchange,
+    changeAnchorPart, onHashchange, onResize,
     setChatAnchor,    initModule;
 
   //------------------- BEGIN UTILITY METHODS ------------------
@@ -150,6 +155,19 @@ spa.shell = function () {
     return false;
   };
 
+  onResize = function (){
+    if ( stateMap.resize_idto ){ return true; }
+
+    spa.chat.handleResize();
+    stateMap.resize_idto = setTimeout(
+      function (){ stateMap.resize_idto = undefined; },
+      configMap.resize_interval
+    );
+
+    return true;
+  };
+
+
   //------------------- CALLBACK METHODS -------------------
   setChatAnchor = function ( position_type ){
     return changeAnchorPart({ chat : position_type });
@@ -175,13 +193,8 @@ spa.shell = function () {
     });
     spa.chat.initModule( jqueryMap.$container );
 
-    // Handle URI anchor change events.
-    // This is done /after/ all feature modules are configured
-    // and initialized, otherwise they will not be ready to handle
-    // the trigger event, which is used to ensure the anchor
-    // is considered on-load
-    //
     $(window)
+      .bind( 'resize', onResize )
       .bind( 'hashchange', onHashchange )
       .trigger( 'hashchange' );
 
